@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Al Borgo</string>
+    <string name="server_hint">Indirizzo del portale (es. http://192.168.1.34/ilborghetto/)</string>
+    <string name="menu_change_server">Cambia indirizzo server</string>
+    <string name="no_network">Nessuna connessione. L\'app funziona solo nella rete Benazzi.</string>
+    <string name="retry">Riprova</string>
+</resources>

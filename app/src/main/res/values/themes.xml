@@ -1,0 +1,6 @@
+<resources>
+    <style name="Theme.AlBorgo" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:statusBarColor">#1f251b</item>
+        <item name="android:windowBackground">#1f251b</item>
+    </style>
+</resources>
