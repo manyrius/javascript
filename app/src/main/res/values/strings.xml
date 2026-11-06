@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">Al Borgo</string>
-    <string name="activate_hint">Attiva questo dispositivo per consultare Al Borgo. Chiedi all'amministratore il QR di attivazione.</string>
+    <string name="activate_hint">Attiva questo dispositivo per consultare Al Borgo. Chiedi all\'amministratore il QR di attivazione.</string>
     <string name="activate_button">Attiva dispositivo</string>
     <string name="waiting">In attesa dell\'approvazione dell\'amministratore…</string>
     <string name="revoked">Accesso revocato. Questo dispositivo non è più autorizzato.</string>
