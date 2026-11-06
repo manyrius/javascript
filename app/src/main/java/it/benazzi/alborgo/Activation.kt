@@ -82,13 +82,17 @@ object Envelope {
 class Api(private val base: String) {
     fun enroll(token: String, model: String): JSONObject {
         val pub = DeviceKey.ensurePublic()
-        val body = JSONObject()
-            .put("token", token)
-            .put("modulus", Base64.encodeToString(unsigned(pub.modulus), Base64.NO_WRAP))
-            .put("exponent", Base64.encodeToString(unsigned(pub.publicExponent), Base64.NO_WRAP))
-            .put("model", model)
-        return postJson("$base?action=enroll", body)
+        val mod = Base64.encodeToString(unsigned(pub.modulus), Base64.NO_WRAP)
+        val exp = Base64.encodeToString(unsigned(pub.publicExponent), Base64.NO_WRAP)
+        // dati nell'URL (niente corpo: sopravvive a eventuali redirect del hosting)
+        val url = "$base?action=enroll&token=${enc(token)}&modulus=${enc(mod)}&exponent=${enc(exp)}&model=${enc(model)}"
+        val (code, text) = get(url)
+        val j = JSONObject(if (text.isBlank()) "{}" else text)
+        if (code >= 400) throw RuntimeException(if (j.has("error")) j.getString("error") else "errore server ($code)")
+        return j
     }
+
+    private fun enc(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")
 
     /** Ritorna coppia (codice http, json). 200 = busta pronta, 202 = in attesa, 403 = revocato. */
     fun credential(deviceId: String): Pair<Int, JSONObject?> {
