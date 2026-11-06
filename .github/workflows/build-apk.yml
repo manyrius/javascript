@@ -2,11 +2,14 @@ name: Costruisci APK Al Borgo
 
 on:
   push:
-  workflow_dispatch:   # si puo lanciare a mano dalla scheda "Actions" di GitHub
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      ANDROID_HOME: /usr/local/lib/android/sdk
     steps:
       - uses: actions/checkout@v4
 
@@ -16,15 +19,19 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accetta licenze e componenti SDK
+        run: |
+          SDKMGR=$(ls $ANDROID_SDK_ROOT/cmdline-tools/*/bin/sdkmanager | head -1)
+          echo "sdkmanager: $SDKMGR"
+          yes | "$SDKMGR" --licenses >/dev/null 2>&1 || true
+          "$SDKMGR" "platforms;android-34" "build-tools;34.0.0" "platform-tools" >/dev/null 2>&1 || true
 
       - name: Build APK
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: Pubblica l'APK come artifact scaricabile
+      - name: Pubblica l'APK
         uses: actions/upload-artifact@v4
         with:
           name: AlBorgo-APK
