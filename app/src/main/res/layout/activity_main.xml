@@ -7,25 +7,63 @@
         android:id="@+id/swipe"
         android:layout_width="match_parent"
         android:layout_height="match_parent">
-
         <WebView
             android:id="@+id/web"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
-    <!-- piccolo pulsante impostazioni (cambia indirizzo server), sempre raggiungibile -->
-    <Button
-        android:id="@+id/settings"
-        android:layout_width="40dp"
-        android:layout_height="40dp"
-        android:layout_gravity="top|end"
-        android:layout_marginTop="6dp"
-        android:layout_marginEnd="6dp"
-        android:text="⚙"
-        android:textSize="18sp"
-        android:textColor="#f4db00"
-        android:background="#881f251b"
-        android:alpha="0.55"
-        android:contentDescription="@string/menu_change_server" />
+    <!-- schermata di attivazione (prima del primo accesso / dopo una revoca) -->
+    <LinearLayout
+        android:id="@+id/activation"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp"
+        android:background="#1f251b">
+
+        <ImageView
+            android:layout_width="84dp"
+            android:layout_height="84dp"
+            android:src="@mipmap/ic_launcher"
+            android:layout_marginBottom="24dp" />
+
+        <TextView
+            android:id="@+id/title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/app_name"
+            android:textColor="#f4db00"
+            android:textSize="26sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:layout_marginTop="14dp"
+            android:text="@string/activate_hint"
+            android:textColor="#d8dbd3"
+            android:textSize="16sp" />
+
+        <ProgressBar
+            android:id="@+id/prog"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/actBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="26dp"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:text="@string/activate_button"
+            android:textColor="#1f251b"
+            android:backgroundTint="#f4db00" />
+    </LinearLayout>
 </FrameLayout>

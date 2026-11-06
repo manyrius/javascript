@@ -1,7 +1,8 @@
 <resources>
     <string name="app_name">Al Borgo</string>
-    <string name="server_hint">Indirizzo del portale (es. http://192.168.1.34/ilborghetto/)</string>
-    <string name="menu_change_server">Cambia indirizzo server</string>
-    <string name="no_network">Nessuna connessione. L\'app funziona solo nella rete Benazzi.</string>
-    <string name="retry">Riprova</string>
+    <string name="activate_hint">Attiva questo dispositivo per consultare Al Borgo. Chiedi all'amministratore il QR di attivazione.</string>
+    <string name="activate_button">Attiva dispositivo</string>
+    <string name="waiting">In attesa dell\'approvazione dell\'amministratore…</string>
+    <string name="revoked">Accesso revocato. Questo dispositivo non è più autorizzato.</string>
+    <string name="no_camera">Serve il permesso fotocamera per leggere il QR.</string>
 </resources>

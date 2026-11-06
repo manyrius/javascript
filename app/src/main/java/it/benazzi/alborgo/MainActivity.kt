@@ -1,146 +1,206 @@
 package it.benazzi.alborgo
 
+import android.Manifest
 import android.annotation.SuppressLint
-import android.app.AlertDialog
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
-import android.view.Menu
-import android.view.MenuItem
+import android.view.View
 import android.webkit.CookieManager
-import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
-import android.widget.EditText
+import android.widget.ProgressBar
+import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-import java.util.UUID
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
+import org.json.JSONObject
+import kotlin.concurrent.thread
 
 /**
- * App "Al Borgo": mostra il portale di consultazione del bar dentro una WebView.
- * - ricorda l'accesso (i cookie restano salvati tra un'apertura e l'altra);
- * - invia l'intestazione X-Borghetto-Device, cosi la pagina "Utenti e azioni" sa da quale tablet arriva;
- * - l'indirizzo del server si imposta al primo avvio e si puo cambiare dal menu.
+ * Al Borgo - app di consultazione.
+ * Stadio 1: attivazione del dispositivo (QR -> approvazione -> jolly cifrata decifrata nel chip) e portale.
+ * (Lo Stadio 2 aggiungerà il tunnel VPN; qui la credenziale viene scaricata e verificata.)
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var web: WebView
     private lateinit var swipe: SwipeRefreshLayout
+    private lateinit var activation: View
+    private lateinit var status: TextView
+    private lateinit var actBtn: Button
+    private lateinit var prog: ProgressBar
 
     private val prefs by lazy { getSharedPreferences("alborgo", MODE_PRIVATE) }
 
-    private val deviceId: String
-        get() {
-            var id = prefs.getString("deviceId", null)
-            if (id == null) {
-                id = UUID.randomUUID().toString().substring(0, 8)
-                prefs.edit().putString("deviceId", id).apply()
-            }
-            return id
-        }
+    // indirizzo del portale (per NUMERO, non per nome: in VPN i nomi non si risolvono)
+    private val portalUrl get() = prefs.getString("portalUrl", DEFAULT_PORTAL) ?: DEFAULT_PORTAL
+    private val apiUrl get() = prefs.getString("apiUrl", null)
+    private val deviceId get() = prefs.getString("deviceId", null)
+    private val isActivated get() = prefs.getString("cred", null) != null
 
-    /** Etichetta leggibile mostrata nel registro azioni: modello + codice breve del dispositivo. */
-    private val deviceLabel: String
-        get() = (android.os.Build.MODEL ?: "Tablet") + " · " + deviceId
+    private val deviceLabel get() = (Build.MODEL ?: "Dispositivo")
 
-    private val extraHeaders: Map<String, String>
-        get() = mapOf("X-Borghetto-Device" to deviceLabel)
+    private val scan = registerForActivityResult(ScanContract()) { res ->
+        if (res.contents != null) onQr(res.contents)
+    }
+    private val askCamera = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) launchScan() else toast(getString(R.string.no_camera))
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-
         web = findViewById(R.id.web)
         swipe = findViewById(R.id.swipe)
+        activation = findViewById(R.id.activation)
+        status = findViewById(R.id.status)
+        actBtn = findViewById(R.id.actBtn)
+        prog = findViewById(R.id.prog)
 
         CookieManager.getInstance().setAcceptCookie(true)
-        CookieManager.getInstance().setAcceptThirdPartyCookies(web, true)
-
         with(web.settings) {
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            databaseEnabled = true
-            cacheMode = android.webkit.WebSettings.LOAD_DEFAULT
-            useWideViewPort = true
-            loadWithOverviewMode = true
-            setSupportZoom(false)
+            javaScriptEnabled = true; domStorageEnabled = true; databaseEnabled = true
+            useWideViewPort = true; loadWithOverviewMode = true; setSupportZoom(false)
         }
-
         web.webViewClient = object : WebViewClient() {
-            // Tutta la navigazione interna passa con l'intestazione del dispositivo
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                val url = request.url.toString()
-                return if (url.startsWith("http")) { view.loadUrl(url, extraHeaders); true } else false
+                val u = request.url.toString()
+                return if (u.startsWith("http")) { view.loadUrl(u, headers()); true } else false
             }
-            override fun onPageFinished(view: WebView, url: String) {
-                swipe.isRefreshing = false
-                CookieManager.getInstance().flush()
-            }
-            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                if (request.isForMainFrame) swipe.isRefreshing = false
-            }
+            override fun onPageFinished(view: WebView, url: String) { swipe.isRefreshing = false; CookieManager.getInstance().flush() }
         }
+        swipe.setOnRefreshListener { web.loadUrl(portalUrl, headers()) }
 
-        findViewById<Button>(R.id.settings).setOnClickListener { askServerUrl(firstTime = false) }
+        actBtn.setOnClickListener { ensureCameraThenScan() }
 
-        swipe.setOnRefreshListener { web.loadUrl(currentUrl(), extraHeaders) }
-
-        val saved = prefs.getString("serverUrl", null)
-        if (saved.isNullOrBlank()) askServerUrl(firstTime = true) else web.loadUrl(saved, extraHeaders)
+        if (isActivated) showPortal() else showActivation()
     }
 
-    private fun currentUrl(): String =
-        prefs.getString("serverUrl", DEFAULT_URL) ?: DEFAULT_URL
+    override fun onResume() {
+        super.onResume()
+        if (isActivated) checkRevokeInBackground()
+    }
 
-    private fun askServerUrl(firstTime: Boolean) {
-        val input = EditText(this).apply {
-            hint = getString(R.string.server_hint)
-            setText(prefs.getString("serverUrl", DEFAULT_URL))
+    // --------------------------------------------------------------- attivazione
+    private fun showActivation() {
+        activation.visibility = View.VISIBLE
+        prog.visibility = View.GONE
+        actBtn.visibility = View.VISIBLE
+        actBtn.text = getString(R.string.activate_button)
+        status.text = getString(R.string.activate_hint)
+    }
+
+    private fun ensureCameraThenScan() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+            launchScan()
+        else askCamera.launch(Manifest.permission.CAMERA)
+    }
+
+    private fun launchScan() {
+        scan.launch(ScanOptions().setOrientationLocked(false).setBeepEnabled(false)
+            .setPrompt("Inquadra il QR di attivazione").setDesiredBarcodeFormats(ScanOptions.QR_CODE))
+    }
+
+    private fun onQr(contents: String) {
+        val u: String; val t: String
+        try { val j = JSONObject(contents); u = j.getString("u"); t = j.getString("t") }
+        catch (e: Exception) { toast("QR non valido"); return }
+        actBtn.visibility = View.GONE
+        prog.visibility = View.VISIBLE
+        status.text = "Registrazione del dispositivo…"
+        thread { enrollAndWait(u, t) }
+    }
+
+    private fun enrollAndWait(u: String, t: String) {
+        val api = Api(u)
+        val id: String
+        try {
+            val r = api.enroll(t, deviceLabel)
+            id = r.getString("deviceId")
+            prefs.edit().putString("apiUrl", u).putString("deviceId", id).apply()
+        } catch (e: Exception) {
+            ui { status.text = "Errore: ${e.message}"; prog.visibility = View.GONE; actBtn.visibility = View.VISIBLE; actBtn.text = "Riprova" }
+            return
         }
-        AlertDialog.Builder(this)
-            .setTitle(getString(R.string.menu_change_server))
-            .setView(input)
-            .setCancelable(!firstTime)
-            .setPositiveButton("OK") { _, _ ->
-                var url = input.text.toString().trim()
-                if (url.isNotEmpty()) {
-                    if (!url.startsWith("http")) url = "http://$url"
-                    prefs.edit().putString("serverUrl", url).apply()
-                    web.loadUrl(url, extraHeaders)
+        ui { status.text = getString(R.string.waiting) }
+        // attende l'approvazione dell'amministratore (fino a ~3 minuti)
+        for (i in 0 until 45) {
+            try {
+                val (code, j) = api.credential(id)
+                when {
+                    code == 200 && j != null && j.has("wrapped") -> {
+                        Envelope.open(j) // verifica che la decifratura con la chiave del chip funzioni
+                        prefs.edit().putString("cred", j.toString()).apply()
+                        ui { toast("Dispositivo attivato ✓"); showPortal() }
+                        return
+                    }
+                    code == 403 -> { ui { wipeAndShowRevoked() }; return }
                 }
-            }
-            .show()
-    }
-
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menu.add(0, 1, 0, getString(R.string.menu_change_server))
-        menu.add(0, 2, 1, getString(R.string.retry))
-        return true
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        when (item.itemId) {
-            1 -> askServerUrl(firstTime = false)
-            2 -> web.loadUrl(currentUrl(), extraHeaders)
-            else -> return super.onOptionsItemSelected(item)
+            } catch (_: Exception) { /* riprova */ }
+            Thread.sleep(4000)
         }
-        return true
+        ui { status.text = "Ancora in attesa di approvazione."; prog.visibility = View.GONE; actBtn.visibility = View.VISIBLE; actBtn.text = "Controlla di nuovo"
+            actBtn.setOnClickListener { actBtn.visibility = View.GONE; prog.visibility = View.VISIBLE; thread { waitApprovalOnly(u, id) } } }
     }
+
+    private fun waitApprovalOnly(u: String, id: String) {
+        val api = Api(u)
+        for (i in 0 until 30) {
+            try {
+                val (code, j) = api.credential(id)
+                if (code == 200 && j != null && j.has("wrapped")) { Envelope.open(j); prefs.edit().putString("cred", j.toString()).apply(); ui { toast("Attivato ✓"); showPortal() }; return }
+                if (code == 403) { ui { wipeAndShowRevoked() }; return }
+            } catch (_: Exception) {}
+            Thread.sleep(4000)
+        }
+        ui { status.text = "Ancora in attesa."; prog.visibility = View.GONE; actBtn.visibility = View.VISIBLE }
+    }
+
+    // --------------------------------------------------------------- revoca / portale
+    private fun checkRevokeInBackground() {
+        val u = apiUrl ?: return; val id = deviceId ?: return
+        thread {
+            try {
+                val hb = Api(u).heartbeat(id) ?: return@thread
+                if (hb.optString("status") == "Revoked" || hb.optString("status") == "unknown") ui { wipeAndShowRevoked() }
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun wipeAndShowRevoked() {
+        prefs.edit().remove("cred").apply()
+        DeviceKey.delete()
+        web.loadUrl("about:blank")
+        activation.visibility = View.VISIBLE
+        prog.visibility = View.GONE
+        actBtn.visibility = View.VISIBLE
+        actBtn.text = getString(R.string.activate_button)
+        status.text = getString(R.string.revoked)
+    }
+
+    private fun showPortal() {
+        activation.visibility = View.GONE
+        web.loadUrl(portalUrl, headers())
+    }
+
+    private fun headers(): Map<String, String> = mapOf("X-Borghetto-Device" to (deviceLabel + " · " + (deviceId?.take(8) ?: "")))
 
     @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (web.canGoBack()) web.goBack() else super.onBackPressed()
-    }
+    override fun onBackPressed() { if (activation.visibility != View.VISIBLE && web.canGoBack()) web.goBack() else super.onBackPressed() }
 
-    override fun onPause() {
-        super.onPause()
-        CookieManager.getInstance().flush()
-    }
+    private fun ui(block: () -> Unit) = runOnUiThread(block)
+    private fun toast(m: String) = Toast.makeText(this, m, Toast.LENGTH_LONG).show()
 
     companion object {
-        // Indirizzo predefinito: cambialo qui, oppure dal menu dell'app al primo avvio.
-        const val DEFAULT_URL = "http://192.168.1.34/ilborghetto/"
+        // Portale per NUMERO (in VPN i nomi non si risolvono).
+        const val DEFAULT_PORTAL = "http://192.168.1.34/ilborghetto/"
     }
 }
