@@ -119,11 +119,12 @@ class Api(private val base: String) {
 
     private fun get(url: String): Pair<Int, String> {
         val c = open(url, "GET")
-        return Pair(c.responseCode, readAll(c))
+        return try { Pair(c.responseCode, readAll(c)) } finally { c.disconnect() }
     }
 
     private fun open(url: String, method: String): HttpURLConnection {
         val c = URL(url).openConnection() as HttpURLConnection
+        c.useCaches = false
         c.requestMethod = method
         c.connectTimeout = 12000
         c.readTimeout = 12000
@@ -131,7 +132,7 @@ class Api(private val base: String) {
     }
 
     private fun readAll(c: HttpURLConnection): String {
-        val stream = if (c.responseCode in 200..299) c.inputStream else (c.errorStream ?: c.inputStream)
+        val stream = if (c.responseCode in 200..299) c.inputStream else (c.errorStream ?: return "")
         return stream.bufferedReader().use { it.readText() }
     }
 

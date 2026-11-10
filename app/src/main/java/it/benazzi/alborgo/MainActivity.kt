@@ -81,7 +81,11 @@ class MainActivity : AppCompatActivity() {
 
         actBtn.setOnClickListener { ensureCameraThenScan() }
 
-        if (isActivated) showPortal() else showActivation()
+        val savedUrl = apiUrl
+        val savedId = deviceId
+        if (isActivated) showPortal()
+        else if (savedUrl != null && savedId != null) startCheck(savedUrl, savedId)
+        else showActivation()
     }
 
     override fun onResume() {
@@ -130,38 +134,65 @@ class MainActivity : AppCompatActivity() {
             ui { status.text = "Errore: ${e.message}"; prog.visibility = View.GONE; actBtn.visibility = View.VISIBLE; actBtn.text = "Riprova" }
             return
         }
-        ui { status.text = getString(R.string.waiting) }
-        // attende l'approvazione dell'amministratore (fino a ~3 minuti)
-        for (i in 0 until 45) {
-            try {
-                val (code, j) = api.credential(id)
-                when {
-                    code == 200 && j != null && j.has("wrapped") -> {
-                        Envelope.open(j) // verifica che la decifratura con la chiave del chip funzioni
-                        prefs.edit().putString("cred", j.toString()).apply()
-                        ui { toast("Dispositivo attivato ✓"); showPortal() }
-                        return
-                    }
-                    code == 403 -> { ui { wipeAndShowRevoked() }; return }
-                }
-            } catch (_: Exception) { /* riprova */ }
-            Thread.sleep(4000)
-        }
-        ui { status.text = "Ancora in attesa di approvazione."; prog.visibility = View.GONE; actBtn.visibility = View.VISIBLE; actBtn.text = "Controlla di nuovo"
-            actBtn.setOnClickListener { actBtn.visibility = View.GONE; prog.visibility = View.VISIBLE; thread { waitApprovalOnly(u, id) } } }
+        ui { startCheck(u, id) }
     }
 
-    private fun waitApprovalOnly(u: String, id: String) {
-        val api = Api(u)
-        for (i in 0 until 30) {
+    private var poll: Thread? = null
+
+    override fun onDestroy() {
+        poll?.interrupt()
+        super.onDestroy()
+    }
+
+    private fun startCheck(u: String, id: String) {
+        status.text = "Verifica dispositivo " + id.take(8)
+        prog.visibility = View.VISIBLE
+        actBtn.visibility = View.GONE
+        poll = thread {
+            val api = Api(u)
             try {
-                val (code, j) = api.credential(id)
-                if (code == 200 && j != null && j.has("wrapped")) { Envelope.open(j); prefs.edit().putString("cred", j.toString()).apply(); ui { toast("Attivato ✓"); showPortal() }; return }
-                if (code == 403) { ui { wipeAndShowRevoked() }; return }
-            } catch (_: Exception) {}
-            Thread.sleep(4000)
+                repeat(45) {
+                    if (Thread.currentThread().isInterrupted) return@thread
+                    val (code, reply) = api.credential(id)
+                    when (code) {
+                        202 -> {
+                            require(reply?.optString("status") == "pending") { "Risposta di attesa non valida" }
+                            ui { status.text = getString(R.string.waiting) + " (" + id.take(8) + ")" }
+                            Thread.sleep(4000)
+                        }
+                        403 -> {
+                            require(reply?.optString("status") == "revoked") { "Accesso negato da Aruba" }
+                            ui { wipeAndShowRevoked() }
+                            return@thread
+                        }
+                        200 -> {
+                            require(reply != null && reply.has("wrapped")) { "Risposta senza credenziale" }
+                            try { Envelope.open(reply) } catch (e: Exception) {
+                                throw IllegalStateException("Approvato. Apertura credenziale fallita (" + e.javaClass.simpleName + ")")
+                            }
+                            if (Thread.currentThread().isInterrupted) return@thread
+                            prefs.edit().putString("cred", reply.toString()).apply()
+                            ui { showPortal() }
+                            return@thread
+                        }
+                        else -> error("Aruba HTTP " + code + ": " + (reply?.optString("error")?.ifBlank { null } ?: reply?.optString("status").orEmpty()))
+                    }
+                }
+                retry(u, id, getString(R.string.waiting))
+            } catch (_: InterruptedException) {
+                return@thread
+            } catch (e: Exception) {
+                retry(u, id, e.message ?: e.javaClass.simpleName)
+            }
         }
-        ui { status.text = "Ancora in attesa."; prog.visibility = View.GONE; actBtn.visibility = View.VISIBLE }
+    }
+
+    private fun retry(u: String, id: String, message: String) = ui {
+        status.text = message + " (" + id.take(8) + ")"
+        prog.visibility = View.GONE
+        actBtn.visibility = View.VISIBLE
+        actBtn.text = "Controlla di nuovo"
+        actBtn.setOnClickListener { startCheck(u, id) }
     }
 
     // --------------------------------------------------------------- revoca / portale
@@ -176,13 +207,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun wipeAndShowRevoked() {
-        prefs.edit().remove("cred").apply()
+        prefs.edit().remove("cred").remove("deviceId").remove("apiUrl").apply()
         DeviceKey.delete()
         web.loadUrl("about:blank")
         activation.visibility = View.VISIBLE
         prog.visibility = View.GONE
         actBtn.visibility = View.VISIBLE
         actBtn.text = getString(R.string.activate_button)
+        actBtn.setOnClickListener { ensureCameraThenScan() }
         status.text = getString(R.string.revoked)
     }
 
@@ -196,7 +228,7 @@ class MainActivity : AppCompatActivity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() { if (activation.visibility != View.VISIBLE && web.canGoBack()) web.goBack() else super.onBackPressed() }
 
-    private fun ui(block: () -> Unit) = runOnUiThread(block)
+    private fun ui(block: () -> Unit) = runOnUiThread { if (!isDestroyed && !isFinishing) block() }
     private fun toast(m: String) = Toast.makeText(this, m, Toast.LENGTH_LONG).show()
 
     companion object {
