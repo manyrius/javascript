@@ -35,6 +35,11 @@ object DeviceKey {
                     .setKeySize(2048)
                     .setDigests(KeyProperties.DIGEST_SHA256)
                     .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_RSA_OAEP)
+                    .apply {
+                        if (android.os.Build.VERSION.SDK_INT >= 35) {
+                            setMgf1Digests(KeyProperties.DIGEST_SHA256)
+                        }
+                    }
                     .build()
             )
             kpg.generateKeyPair()

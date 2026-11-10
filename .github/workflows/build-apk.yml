@@ -26,7 +26,7 @@ jobs:
         run: |
           SDKMGR=$(ls $ANDROID_SDK_ROOT/cmdline-tools/*/bin/sdkmanager | head -1)
           yes | "$SDKMGR" --licenses >/dev/null 2>&1 || true
-          "$SDKMGR" "platforms;android-34" "build-tools;34.0.0" "platform-tools" >/dev/null 2>&1 || true
+          "$SDKMGR" "platforms;android-35" "build-tools;34.0.0" "platform-tools" >/dev/null 2>&1 || true
 
       - name: Build APK
         run: |
