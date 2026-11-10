@@ -221,13 +221,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     // --------------------------------------------------------------- revoca / portale
-    private fun checkRevokeInBackground() {
-        val u = apiUrl ?: return; val id = deviceId ?: return
-        thread {
+    private var sessionChecks: Thread? = null
+    private fun startSessionChecks(current: Int) {
+        sessionChecks?.interrupt()
+        sessionChecks = thread {
             try {
-                val hb = Api(u).heartbeat(id) ?: return@thread
-                if (hb.optString("status") == "Revoked" || hb.optString("status") == "unknown") ui { wipeAndShowRevoked() }
-            } catch (_: Exception) {}
+                repeat(26) {
+                    Thread.sleep(30000)
+                    val state = Api(requireNotNull(apiUrl)).heartbeat(requireNotNull(deviceId))?.optString("status")
+                    if (state != "Approved") {
+                        ui { if (current == epoch && started) {
+                            if (state == "Revoked" || state == "unknown") wipeAndShowRevoked()
+                            else vpnError("Autorizzazione del dispositivo non confermata.")
+                        } }
+                        return@thread
+                    }
+                }
+                ui { if (current == epoch && started) verifyPortal() }
+            } catch (_: InterruptedException) {
+                return@thread
+            } catch (_: Exception) {
+                ui { if (current == epoch && started) vpnError("Verifica del dispositivo non disponibile.") }
+            }
         }
     }
 
@@ -251,7 +266,7 @@ class MainActivity : AppCompatActivity() {
         activation.visibility = View.VISIBLE
         actBtn.visibility = View.GONE
         prog.visibility = View.VISIBLE
-        status.text = "Verifica autorizzazione VPN…"
+        status.text = "Verifica autorizzazioneï¿½"
         vpnCheck?.interrupt()
         vpnCheck = thread {
             try {
@@ -261,7 +276,7 @@ class MainActivity : AppCompatActivity() {
                     when (state) {
                         "Approved" -> prepareTunnel()
                         "Revoked", "unknown" -> wipeAndShowRevoked()
-                        else -> vpnError("Autorizzazione VPN non confermata da Aruba.")
+                        else -> vpnError("Autorizzazione non confermata da Aruba.")
                     }
                 }
             } catch (e: Exception) { ui { if (isActivated) vpnError("Aruba non raggiungibile.") } }
@@ -308,12 +323,13 @@ class MainActivity : AppCompatActivity() {
             de.blinkt.openvpn.core.ProfileManager.setTemporaryProfile(this, profile)
             de.blinkt.openvpn.core.VPNLaunchHelper.startOpenVpn(profile, this, "Al Borgo", false)
             started = true
-            status.text = "Collegamento al portale…"
+            status.text = "Collegamento al portaleï¿½"
             verifyPortal()
         } catch (e: Exception) { vpnError("Collegamento non riuscito: " + e.javaClass.simpleName) }
     }
 
     private fun verifyPortal() {
+        val current = epoch
         vpnCheck = thread {
             val cm = getSystemService(android.net.ConnectivityManager::class.java)
             repeat(30) {
@@ -339,8 +355,9 @@ class MainActivity : AppCompatActivity() {
                             val proof = DeviceKey.unwrap(android.util.Base64.decode(challenge.getString("wrapped"), android.util.Base64.DEFAULT))
                             val token = android.util.Base64.encodeToString(proof, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
                             proof.fill(0)
-                            ui { if (foreground && started && isActivated) {
+                            ui { if (foreground && started && isActivated && epoch == current) {
                                 activation.visibility = View.GONE
+                                startSessionChecks(current)
                                 web.postUrl(portalUrl + "mobile-auth/session", ("proof=" + token).toByteArray())
                             } }
                         } catch (e: Exception) { ui { if (foreground && started) vpnError("Accesso consultatore non riuscito. Verifica la versione del portale.") } }
@@ -354,6 +371,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun closeTunnel() {
+        sessionChecks?.interrupt()
         if (!started) return
         started = false
         val app = applicationContext
@@ -370,6 +388,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun vpnError(message: String) {
+        web.stopLoading()
+        web.loadUrl("about:blank")
         closeTunnel()
         activation.visibility = View.VISIBLE
         prog.visibility = View.GONE
