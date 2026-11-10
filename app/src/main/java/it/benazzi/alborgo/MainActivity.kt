@@ -72,8 +72,11 @@ class MainActivity : AppCompatActivity() {
         }
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                val u = request.url.toString()
-                return if (u.startsWith("http")) { view.loadUrl(u, headers()); true } else false
+                return !allowed(request.url)
+            }
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): android.webkit.WebResourceResponse? {
+                if (allowed(request.url)) return null
+                return android.webkit.WebResourceResponse("text/plain", "utf-8", 403, "Forbidden", emptyMap(), null)
             }
             override fun onPageFinished(view: WebView, url: String) { swipe.isRefreshing = false; CookieManager.getInstance().flush() }
         }
@@ -81,16 +84,34 @@ class MainActivity : AppCompatActivity() {
 
         actBtn.setOnClickListener { ensureCameraThenScan() }
 
-        val savedUrl = apiUrl
-        val savedId = deviceId
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+    }
+
+    private var foreground = false
+    private var epoch = 0
+    override fun onResume() {
+        super.onResume()
+        foreground = !isInMultiWindowMode && !isInPictureInPictureMode
+        if (!foreground) { status.text = "Apri Al Borgo a schermo intero."; return }
+        if (permissionPending) return
+        val u = apiUrl
+        val id = deviceId
         if (isActivated) showPortal()
-        else if (savedUrl != null && savedId != null) startCheck(savedUrl, savedId)
+        else if (u != null && id != null) startCheck(u, id)
         else showActivation()
     }
 
-    override fun onResume() {
-        super.onResume()
-        if (isActivated) checkRevokeInBackground()
+    override fun onPause() {
+        foreground = false
+        epoch++
+        poll?.interrupt()
+        vpnCheck?.interrupt()
+        closeTunnel()
+        web.stopLoading()
+        web.loadUrl("about:blank")
+        activation.visibility = View.VISIBLE
+        super.onPause()
     }
 
     // --------------------------------------------------------------- attivazione
@@ -150,10 +171,12 @@ class MainActivity : AppCompatActivity() {
         status.text = "Verifica dispositivo " + id.take(8)
         prog.visibility = View.VISIBLE
         actBtn.visibility = View.GONE
+        if (!foreground) return
+        poll?.interrupt()
         poll = thread {
             val api = Api(u)
             try {
-                repeat(45) {
+                while (!Thread.currentThread().isInterrupted) {
                     if (Thread.currentThread().isInterrupted) return@thread
                     val (code, reply) = api.credential(id)
                     when (code) {
@@ -223,6 +246,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showPortal() {
+        if (!foreground || started) return
+        val current = epoch
         activation.visibility = View.VISIBLE
         actBtn.visibility = View.GONE
         prog.visibility = View.VISIBLE
@@ -232,9 +257,9 @@ class MainActivity : AppCompatActivity() {
             try {
                 val state = Api(requireNotNull(apiUrl)).heartbeat(requireNotNull(deviceId))?.optString("status")
                 ui {
-                    if (!isActivated) return@ui
+                    if (!isActivated || !foreground || current != epoch) return@ui
                     when (state) {
-                        "Approved" -> bindTunnel()
+                        "Approved" -> prepareTunnel()
                         "Revoked", "unknown" -> wipeAndShowRevoked()
                         else -> vpnError("Autorizzazione VPN non confermata da Aruba.")
                     }
@@ -244,60 +269,48 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var vpnCheck: Thread? = null
-    private var tunnel: de.blinkt.openvpn.api.IOpenVPNAPIService? = null
-    private var bound = false
     private var started = false
     private var permissionPending = false
     private val permission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         permissionPending = false
-        if (it.resultCode == RESULT_OK) prepareTunnel() else vpnError("Autorizzazione VPN annullata.")
+        if (it.resultCode != RESULT_OK) { consentDenied = true; vpnError("Autorizzazione Android necessaria per collegarsi.") }
+        else if (foreground) showPortal()
     }
-
-    private fun bindTunnel() {
-        try {
-            val pkg = "de.blinkt.openvpn"
-            @Suppress("DEPRECATION")
-            val sig = packageManager.getPackageInfo(pkg, PackageManager.GET_SIGNATURES).signatures?.singleOrNull()
-            val digest = sig?.let { java.security.MessageDigest.getInstance("SHA-256").digest(it.toByteArray()) }
-            val fingerprint = digest?.joinToString("") { "%02x".format(it) }
-            require(fingerprint == "b26483ea68fb0ab6cd51420c7e5e84bb28b980d87036222f6927b361c7cba902") {
-                "Installa OpenVPN for Android dalla release ufficiale di Arne Schwabe."
-            }
-            val intent = android.content.Intent("de.blinkt.openvpn.api.IOpenVPNAPIService").setPackage(pkg)
-            bound = bindService(intent, connection, BIND_AUTO_CREATE)
-            if (!bound) vpnError("Servizio OpenVPN non disponibile.")
-        } catch (e: PackageManager.NameNotFoundException) {
-            vpnError("Installa OpenVPN for Android dalla release ufficiale di Arne Schwabe.")
-        } catch (e: Exception) { vpnError(e.message ?: "Collegamento a OpenVPN fallito.") }
-    }
-
-    private val connection = object : android.content.ServiceConnection {
-        override fun onServiceConnected(name: android.content.ComponentName, binder: android.os.IBinder) {
-            tunnel = de.blinkt.openvpn.api.IOpenVPNAPIService.Stub.asInterface(binder)
-            prepareTunnel()
-        }
-        override fun onServiceDisconnected(name: android.content.ComponentName) {
-            tunnel = null
-            if (isActivated) vpnError("Servizio VPN scollegato.")
-        }
-    }
+    private var consentDenied = false
 
     private fun prepareTunnel() {
-        val service = tunnel ?: return
-        if (!isActivated || permissionPending || started) return
+        if (!foreground || permissionPending || started || !isActivated) return
         try {
-            val request = service.prepare(packageName) ?: service.prepareVPNService()
+            val request = android.net.VpnService.prepare(this)
             if (request != null) {
+                if (consentDenied) { vpnError("Autorizza il collegamento per consultare Al Borgo."); return }
                 permissionPending = true
                 permission.launch(request)
                 return
             }
-            val profile = Envelope.open(JSONObject(requireNotNull(prefs.getString("cred", null))))
-            try { service.startVPN(profile.toString(Charsets.UTF_8)) } finally { profile.fill(0) }
+            val plain = Envelope.open(JSONObject(requireNotNull(prefs.getString("cred", null))))
+            val profile = try {
+                de.blinkt.openvpn.core.ConfigParser().run {
+                    parseConfig(plain.inputStream().bufferedReader())
+                    convertProfile()
+                }
+            } finally { plain.fill(0) }
+            profile.mName = "Al Borgo"
+            profile.mAllowedAppsVpn.clear()
+            profile.mAllowedAppsVpn.add(packageName)
+            profile.mAllowedAppsVpnAreDisallowed = false
+            profile.mRoutenopull = true
+            profile.mUseDefaultRoute = false
+            profile.mUseDefaultRoutev6 = false
+            profile.mCustomRoutes = "192.168.1.34/32"
+            profile.mCustomRoutesv6 = ""
+            profile.mAllowLocalLAN = false
+            de.blinkt.openvpn.core.ProfileManager.setTemporaryProfile(this, profile)
+            de.blinkt.openvpn.core.VPNLaunchHelper.startOpenVpn(profile, this, "Al Borgo", false)
             started = true
-            status.text = "Connessione VPN al Borgo…"
+            status.text = "Collegamento al portale…"
             verifyPortal()
-        } catch (e: Exception) { vpnError("Avvio VPN fallito: " + e.javaClass.simpleName) }
+        } catch (e: Exception) { vpnError("Collegamento non riuscito: " + e.javaClass.simpleName) }
     }
 
     private fun verifyPortal() {
@@ -317,21 +330,43 @@ class MainActivity : AppCompatActivity() {
                         } finally { c.disconnect() }
                     }.getOrDefault(false)
                     if (reachable) {
-                        ui { if (started && isActivated) { activation.visibility = View.GONE; web.loadUrl(portalUrl, headers()) } }
+                        try {
+                            val id = requireNotNull(deviceId)
+                            val conn = network.openConnection(java.net.URL(portalUrl + "mobile-auth/challenge?id=" + id)) as java.net.HttpURLConnection
+                            conn.connectTimeout = 5000
+                            conn.readTimeout = 8000
+                            val challenge = try { JSONObject(conn.inputStream.bufferedReader().use { it.readText() }) } finally { conn.disconnect() }
+                            val proof = DeviceKey.unwrap(android.util.Base64.decode(challenge.getString("wrapped"), android.util.Base64.DEFAULT))
+                            val token = android.util.Base64.encodeToString(proof, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING)
+                            proof.fill(0)
+                            ui { if (foreground && started && isActivated) {
+                                activation.visibility = View.GONE
+                                web.postUrl(portalUrl + "mobile-auth/session", ("proof=" + token).toByteArray())
+                            } }
+                        } catch (e: Exception) { ui { if (foreground && started) vpnError("Accesso consultatore non riuscito. Verifica la versione del portale.") } }
                         return@thread
                     }
                 }
                 try { Thread.sleep(1500) } catch (_: InterruptedException) { return@thread }
             }
-            ui { if (started) vpnError("Il portale non risponde attraverso la VPN. Controlla il registro di OpenVPN for Android.") }
+            ui { if (started) vpnError("Il portale non risponde attraverso la VPN. Verifica il collegamento del server.") }
         }
     }
 
     private fun closeTunnel() {
-        if (started) runCatching { tunnel?.disconnect() }
+        if (!started) return
         started = false
-        if (bound) { unbindService(connection); bound = false }
-        tunnel = null
+        val app = applicationContext
+        val service = android.content.Intent(app, de.blinkt.openvpn.core.OpenVPNService::class.java)
+        service.action = de.blinkt.openvpn.core.OpenVPNService.START_SERVICE
+        val stopper = object : android.content.ServiceConnection {
+            override fun onServiceConnected(name: android.content.ComponentName, binder: android.os.IBinder) {
+                try { de.blinkt.openvpn.core.IOpenVPNServiceInternal.Stub.asInterface(binder).stopVPN(false) }
+                finally { app.unbindService(this) }
+            }
+            override fun onServiceDisconnected(name: android.content.ComponentName) {}
+        }
+        if (!app.bindService(service, stopper, 0)) app.stopService(service)
     }
 
     private fun vpnError(message: String) {
@@ -340,9 +375,13 @@ class MainActivity : AppCompatActivity() {
         prog.visibility = View.GONE
         status.text = message
         actBtn.visibility = View.VISIBLE
-        actBtn.text = "Riprova VPN"
-        actBtn.setOnClickListener { showPortal() }
+        actBtn.text = "Riprova"
+        actBtn.setOnClickListener { consentDenied = false; showPortal() }
     }
+
+    private fun allowed(uri: android.net.Uri): Boolean =
+        uri.scheme == "http" && uri.host == "192.168.1.34" && uri.port in listOf(-1, 80) &&
+        uri.path?.startsWith("/ilborghetto/") == true && uri.pathSegments.none { it == ".." }
 
     private fun headers(): Map<String, String> = mapOf("X-Borghetto-Device" to (deviceLabel + " Â· " + (deviceId?.take(8) ?: "")))
 

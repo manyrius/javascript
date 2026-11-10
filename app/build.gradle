@@ -6,14 +6,14 @@ plugins {
 android {
     namespace 'it.benazzi.alborgo'
     compileSdk 35
-    buildFeatures { aidl true }
+    packagingOptions { jniLibs { useLegacyPackaging = true } }
 
     defaultConfig {
         applicationId 'it.benazzi.alborgo'
         minSdk 24
         targetSdk 34
-        versionCode 5
-        versionName '2.3'
+        versionCode 6
+        versionName '2.4'
     }
 
     buildTypes {
@@ -30,6 +30,7 @@ android {
 }
 
 dependencies {
+    implementation "network.mysterium.openvpn:icsopenvpn:0.7.55-myst"
     implementation 'androidx.core:core-ktx:1.13.1'
     implementation 'androidx.appcompat:appcompat:1.7.0'
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'

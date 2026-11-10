@@ -3,7 +3,12 @@ pluginManagement {
 }
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-    repositories { google(); mavenCentral() }
+    repositories { google(); mavenCentral()
+        exclusiveContent {
+            forRepository { maven { url = uri("https://raw.githubusercontent.com/mysteriumnetwork/openvpn_dart/981b0f3eac718f5d343638deec206e7cd1923aa7/android/localmaven") } }
+            filter { includeGroup("network.mysterium.openvpn") }
+        }
+    }
 }
 rootProject.name = "Al Borgo"
 include(":app")
