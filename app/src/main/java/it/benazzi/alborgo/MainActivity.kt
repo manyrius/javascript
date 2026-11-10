@@ -140,6 +140,8 @@ class MainActivity : AppCompatActivity() {
     private var poll: Thread? = null
 
     override fun onDestroy() {
+        vpnCheck?.interrupt()
+        closeTunnel()
         poll?.interrupt()
         super.onDestroy()
     }
@@ -207,6 +209,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun wipeAndShowRevoked() {
+        vpnCheck?.interrupt()
+        closeTunnel()
         prefs.edit().remove("cred").remove("deviceId").remove("apiUrl").apply()
         DeviceKey.delete()
         web.loadUrl("about:blank")
@@ -219,8 +223,125 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showPortal() {
-        activation.visibility = View.GONE
-        web.loadUrl(portalUrl, headers())
+        activation.visibility = View.VISIBLE
+        actBtn.visibility = View.GONE
+        prog.visibility = View.VISIBLE
+        status.text = "Verifica autorizzazione VPN…"
+        vpnCheck?.interrupt()
+        vpnCheck = thread {
+            try {
+                val state = Api(requireNotNull(apiUrl)).heartbeat(requireNotNull(deviceId))?.optString("status")
+                ui {
+                    if (!isActivated) return@ui
+                    when (state) {
+                        "Approved" -> bindTunnel()
+                        "Revoked", "unknown" -> wipeAndShowRevoked()
+                        else -> vpnError("Autorizzazione VPN non confermata da Aruba.")
+                    }
+                }
+            } catch (e: Exception) { ui { if (isActivated) vpnError("Aruba non raggiungibile.") } }
+        }
+    }
+
+    private var vpnCheck: Thread? = null
+    private var tunnel: de.blinkt.openvpn.api.IOpenVPNAPIService? = null
+    private var bound = false
+    private var started = false
+    private var permissionPending = false
+    private val permission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        permissionPending = false
+        if (it.resultCode == RESULT_OK) prepareTunnel() else vpnError("Autorizzazione VPN annullata.")
+    }
+
+    private fun bindTunnel() {
+        try {
+            val pkg = "de.blinkt.openvpn"
+            @Suppress("DEPRECATION")
+            val sig = packageManager.getPackageInfo(pkg, PackageManager.GET_SIGNATURES).signatures?.singleOrNull()
+            val digest = sig?.let { java.security.MessageDigest.getInstance("SHA-256").digest(it.toByteArray()) }
+            val fingerprint = digest?.joinToString("") { "%02x".format(it) }
+            require(fingerprint == "b26483ea68fb0ab6cd51420c7e5e84bb28b980d87036222f6927b361c7cba902") {
+                "Installa OpenVPN for Android dalla release ufficiale di Arne Schwabe."
+            }
+            val intent = android.content.Intent("de.blinkt.openvpn.api.IOpenVPNAPIService").setPackage(pkg)
+            bound = bindService(intent, connection, BIND_AUTO_CREATE)
+            if (!bound) vpnError("Servizio OpenVPN non disponibile.")
+        } catch (e: PackageManager.NameNotFoundException) {
+            vpnError("Installa OpenVPN for Android dalla release ufficiale di Arne Schwabe.")
+        } catch (e: Exception) { vpnError(e.message ?: "Collegamento a OpenVPN fallito.") }
+    }
+
+    private val connection = object : android.content.ServiceConnection {
+        override fun onServiceConnected(name: android.content.ComponentName, binder: android.os.IBinder) {
+            tunnel = de.blinkt.openvpn.api.IOpenVPNAPIService.Stub.asInterface(binder)
+            prepareTunnel()
+        }
+        override fun onServiceDisconnected(name: android.content.ComponentName) {
+            tunnel = null
+            if (isActivated) vpnError("Servizio VPN scollegato.")
+        }
+    }
+
+    private fun prepareTunnel() {
+        val service = tunnel ?: return
+        if (!isActivated || permissionPending || started) return
+        try {
+            val request = service.prepare(packageName) ?: service.prepareVPNService()
+            if (request != null) {
+                permissionPending = true
+                permission.launch(request)
+                return
+            }
+            val profile = Envelope.open(JSONObject(requireNotNull(prefs.getString("cred", null))))
+            try { service.startVPN(profile.toString(Charsets.UTF_8)) } finally { profile.fill(0) }
+            started = true
+            status.text = "Connessione VPN al Borgo…"
+            verifyPortal()
+        } catch (e: Exception) { vpnError("Avvio VPN fallito: " + e.javaClass.simpleName) }
+    }
+
+    private fun verifyPortal() {
+        vpnCheck = thread {
+            val cm = getSystemService(android.net.ConnectivityManager::class.java)
+            repeat(30) {
+                if (Thread.currentThread().isInterrupted) return@thread
+                val network = cm.activeNetwork
+                if (network != null && cm.getNetworkCapabilities(network)?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) == true) {
+                    val reachable = runCatching {
+                        val c = network.openConnection(java.net.URL(portalUrl)) as java.net.HttpURLConnection
+                        try {
+                            c.instanceFollowRedirects = false
+                            c.connectTimeout = 1500
+                            c.readTimeout = 1500
+                            c.responseCode in 200..399
+                        } finally { c.disconnect() }
+                    }.getOrDefault(false)
+                    if (reachable) {
+                        ui { if (started && isActivated) { activation.visibility = View.GONE; web.loadUrl(portalUrl, headers()) } }
+                        return@thread
+                    }
+                }
+                try { Thread.sleep(1500) } catch (_: InterruptedException) { return@thread }
+            }
+            ui { if (started) vpnError("Il portale non risponde attraverso la VPN. Controlla il registro di OpenVPN for Android.") }
+        }
+    }
+
+    private fun closeTunnel() {
+        if (started) runCatching { tunnel?.disconnect() }
+        started = false
+        if (bound) { unbindService(connection); bound = false }
+        tunnel = null
+    }
+
+    private fun vpnError(message: String) {
+        closeTunnel()
+        activation.visibility = View.VISIBLE
+        prog.visibility = View.GONE
+        status.text = message
+        actBtn.visibility = View.VISIBLE
+        actBtn.text = "Riprova VPN"
+        actBtn.setOnClickListener { showPortal() }
     }
 
     private fun headers(): Map<String, String> = mapOf("X-Borghetto-Device" to (deviceLabel + " Â· " + (deviceId?.take(8) ?: "")))
