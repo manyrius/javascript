@@ -10,8 +10,8 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@mipmap/ic_launcher"
-        android:roundIcon="@mipmap/ic_launcher"
+        android:icon="@drawable/sib_mark"
+        android:roundIcon="@drawable/sib_mark"
         android:label="@string/app_name"
         android:theme="@style/Theme.AlBorgo"
         android:usesCleartextTraffic="true"

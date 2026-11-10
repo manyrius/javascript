@@ -93,7 +93,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         foreground = !isInMultiWindowMode && !isInPictureInPictureMode
-        if (!foreground) { status.text = "Apri Al Borgo a schermo intero."; return }
+        if (!foreground) { status.text = "Apri SmartHub a schermo intero."; return }
         if (permissionPending) return
         val u = apiUrl
         val id = deviceId
@@ -313,7 +313,7 @@ class MainActivity : AppCompatActivity() {
                     convertProfile()
                 }
             } finally { plain.fill(0) }
-            profile.mName = "Al Borgo"
+            profile.mName = "SIB SmartHub"
             profile.mAllowedAppsVpn.clear()
             profile.mAllowedAppsVpn.add(packageName)
             profile.mAllowedAppsVpnAreDisallowed = false
@@ -324,7 +324,7 @@ class MainActivity : AppCompatActivity() {
             profile.mCustomRoutesv6 = ""
             profile.mAllowLocalLAN = false
             de.blinkt.openvpn.core.ProfileManager.setTemporaryProfile(this, profile)
-            de.blinkt.openvpn.core.VPNLaunchHelper.startOpenVpn(profile, this, "Al Borgo", false)
+            de.blinkt.openvpn.core.VPNLaunchHelper.startOpenVpn(profile, this, "SIB SmartHub", false)
             started = true
             status.text = "Collegamento al portale�"
             verifyPortal()
