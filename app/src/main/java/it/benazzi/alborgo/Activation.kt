@@ -85,13 +85,19 @@ object Envelope {
 
 /** Chiamate all'API di attivazione su artsdomus. */
 class Api(private val base: String) {
-    fun enroll(token: String, model: String): JSONObject {
+    fun enroll(token: String, model: String, brand: String, phoneName: String): JSONObject {
         val pub = DeviceKey.ensurePublic()
         val mod = Base64.encodeToString(unsigned(pub.modulus), Base64.NO_WRAP)
         val exp = Base64.encodeToString(unsigned(pub.publicExponent), Base64.NO_WRAP)
         // dati nell'URL (niente corpo: sopravvive a eventuali redirect del hosting)
         val url = "$base?action=enroll&token=${enc(token)}&modulus=${enc(mod)}&exponent=${enc(exp)}&model=${enc(model)}"
-        val (code, text) = get(url)
+        val connection = open(url, "POST")
+        val (code, text) = try {
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
+            connection.outputStream.use { it.write(("brand=" + enc(brand) + "&phoneName=" + enc(phoneName)).toByteArray()) }
+            Pair(connection.responseCode, readAll(connection))
+        } finally { connection.disconnect() }
         val j = JSONObject(if (text.isBlank()) "{}" else text)
         if (code >= 400) throw RuntimeException(if (j.has("error")) j.getString("error") else "errore server ($code)")
         return j

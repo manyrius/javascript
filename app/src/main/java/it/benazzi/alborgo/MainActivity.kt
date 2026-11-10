@@ -148,7 +148,10 @@ class MainActivity : AppCompatActivity() {
         val api = Api(u)
         val id: String
         try {
-            val r = api.enroll(t, deviceLabel)
+            val name = runCatching {
+                android.provider.Settings.Global.getString(contentResolver, android.provider.Settings.Global.DEVICE_NAME)
+            }.getOrNull().orEmpty().trim().take(100)
+            val r = api.enroll(t, deviceLabel, Build.MANUFACTURER.orEmpty(), name)
             id = r.getString("deviceId")
             prefs.edit().putString("apiUrl", u).putString("deviceId", id).apply()
         } catch (e: Exception) {
