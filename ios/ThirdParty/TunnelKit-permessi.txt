@@ -1,0 +1,28 @@
+## License
+
+Copyright (c) 2024 Davide De Rosa. All rights reserved.
+
+### Part I
+
+This project is licensed under the [GPLv3][license-content].
+
+### Part II
+
+As seen in [libsignal-protocol-c][license-signal]:
+
+> Additional Permissions For Submission to Apple App Store: Provided that you are otherwise in compliance with the GPLv3 for each covered work you convey (including without limitation making the Corresponding Source available in compliance with Section 6 of the GPLv3), the Author also grants you the additional permission to convey through the Apple App Store non-source executable versions of the Program as incorporated into each applicable covered work as Executable Versions only under the Mozilla Public License version 2.0 (https://www.mozilla.org/en-US/MPL/2.0/).
+
+### Part III
+
+Part I and II do not apply to the LZO library, which remains licensed under the terms of the GPLv2+.
+
+### Contributing
+
+By contributing to this project you are agreeing to the terms stated in the [Contributor License Agreement (CLA)][contrib-cla].
+
+For more details please see [CONTRIBUTING][contrib-readme].
+
+### Other licenses
+
+A custom TunnelKit license, e.g. for use in proprietary software, may be negotiated [on request][license-contact].
+

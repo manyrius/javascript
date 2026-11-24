@@ -1,0 +1,8 @@
+SIBSmartHub.xcodeproj/
+build/
+*.xcuserstate
+*.ipa
+*.p12
+*.mobileprovision
+Local.xcconfig
+ExportOptions.local.plist
