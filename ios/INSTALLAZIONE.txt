@@ -1,0 +1,59 @@
+SIB SU IPHONE E IPAD — INSTALLAZIONE PRIVATA
+
+Stato della consegna
+Questa cartella contiene i sorgenti dell'app e le istruzioni per creare il file IPA.
+Per ottenere il file installabile occorrono una compilazione Xcode riuscita,
+la firma Apple e il collaudo con il vostro profilo VPN.
+
+COSA SERVE UNA VOLTA SOLA
+1. Un account Apple Developer Program. Il prezzo indicato da Apple è 99 USD
+   all'anno, con prezzo locale dove previsto. Iscrizione su developer.apple.com.
+2. Un Mac con Xcode per preparare la firma e fare la prima installazione.
+   Può essere il Mac di chi vi segue tecnicamente.
+3. L'elenco degli iPhone/iPad da autorizzare, con il loro identificativo UDID.
+   Chi configura il Mac lo trova collegando il telefono e aprendo in Xcode
+   Window > Devices and Simulators.
+
+PREPARAZIONE PER IL TECNICO
+1. Aprire Xcode e aggiungere l'account Apple nelle impostazioni Accounts.
+2. Registrare gli UDID nell'account Apple Developer.
+3. Installare XcodeGen con il comando brew install xcodegen.
+4. Aprire il Terminale nella cartella ios ed eseguire bash prepara-mac.command.
+5. In Xcode selezionare il Team in Signing & Capabilities sia per SIBSmartHub
+   sia per SIBTunnel. Verificare Network Extensions (Packet Tunnel) e App Groups.
+6. Collegare il primo iPhone, selezionarlo in Xcode e premere Run per collaudare.
+7. Per il pacchetto privato eseguire
+   APPLE_TEAM_ID=IL_TUO_TEAM_ID bash esporta-privata.command
+   Il Team ID è visibile nell'account sviluppatore. Il file IPA viene creato
+   nella cartella ios/build/privata.
+
+INSTALLAZIONE SUL TELEFONO
+1. Installare Apple Configurator sul Mac.
+2. Collegare l'iPhone con il cavo e autorizzare il computer sul telefono.
+3. In Apple Configurator selezionare il dispositivo e aggiungere il file IPA.
+4. Aprire SIB SmartHub sul telefono.
+5. Inserire un nome riconoscibile, ad esempio "iPhone Francesco".
+6. Dal portale SIB l'amministratore genera il QR di attivazione.
+7. Nell'app premere "Inquadra QR di attivazione" e leggere quel QR.
+8. L'amministratore approva il dispositivo e sceglie le società visibili.
+9. Accettare la richiesta Apple di aggiungere la configurazione VPN.
+10. Si apre il portale in consultazione. Uscendo dall'app si interrompe il tunnel.
+
+AGGIORNAMENTI
+La distribuzione Ad Hoc è riservata ai dispositivi registrati nei profili Apple.
+Per aggiungere un telefono si aggiorna il profilo e si esporta un nuovo IPA.
+Prima della scadenza dei certificati/profili occorre firmare e installare
+una versione aggiornata. Conservare i sorgenti e l'accesso al Team Apple.
+
+NOTE DI COLLAUDO
+Verificare su rete cellulare approvazione, revoca, accesso alle società assegnate,
+blocco dello schermo e spegnimento della VPN. L'icona e il consenso VPN di iOS
+restano gestiti da Apple. Il tunnel è limitato all'indirizzo del portale;
+l'isolamento Apple per singola app richiede dispositivi gestiti.
+La libreria VPN inclusa, TunnelKit, è dismessa dal manutentore: la versione
+è fissata per il collaudo e richiede una valutazione di manutenzione prima
+della distribuzione produttiva. Dettagli e licenze nel README e in ThirdParty.
+
+Documentazione Apple
+https://developer.apple.com/documentation/xcode/distributing-your-app-to-registered-devices/
+https://developer.apple.com/help/account/membership/program-enrollment

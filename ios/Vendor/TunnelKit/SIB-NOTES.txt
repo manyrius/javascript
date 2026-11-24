@@ -1,0 +1,3 @@
+Source: https://github.com/partout-io/tunnelkit
+Revision: 5cd1c64be666dd94ea65afcf3c5684fa2c87a925
+SIB changes: OpenVPN-only package; unused WireGuard and LZO targets removed. OpenSSL repository URL updated and dependency versions pinned. Original source and license retained.

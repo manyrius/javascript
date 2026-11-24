@@ -14,8 +14,7 @@ settings:
     SUPPORTS_MACCATALYST: NO
 packages:
   TunnelKit:
-    url: https://github.com/partout-io/tunnelkit.git
-    revision: 5cd1c64be666dd94ea65afcf3c5684fa2c87a925
+    path: Vendor/TunnelKit
 targets:
   SIBSmartHub:
     type: application
