@@ -30,14 +30,17 @@ final class Tunnel {
         try await selected.loadFromPreferences()
         try Task.checkCancellation()
         // The decrypted profile travels only in the transient start message.
-        try selected.connection.startVPNTunnel(options: ["ovpn": profile as NSData])
-        for _ in 0..<60 {
+        guard let connection = selected.connection as? NETunnelProviderSession else {
+            throw AppFailure("Estensione VPN non disponibile.")
+        }
+        try connection.startTunnel(options: ["ovpn": profile as NSData])
+        for attempt in 0..<60 {
             try Task.checkCancellation()
             if selected.connection.status == .connected { return }
-            if [.invalid, .disconnected].contains(selected.connection.status) {
+            if attempt > 2 && [.invalid, .disconnected].contains(selected.connection.status) {
                 throw AppFailure("Collegamento VPN fallito. Verifica profilo e server VPN.")
             }
-            try ping()
+            try? ping()
             try await Task.sleep(nanoseconds: 1_000_000_000)
         }
         throw AppFailure("Il server VPN non ha risposto entro un minuto.")

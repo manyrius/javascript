@@ -9,7 +9,7 @@ enum Settings {
     static func acceptsPortal(_ url: URL) -> Bool {
         url.scheme == portal.scheme && url.host == portal.host &&
         (url.port ?? 80) == 80 && url.user == nil && url.password == nil &&
-        url.standardized.path.hasPrefix("/ilborghetto/")
+        (url.standardized.path == "/ilborghetto" || url.standardized.path.hasPrefix("/ilborghetto/"))
     }
 }
 
